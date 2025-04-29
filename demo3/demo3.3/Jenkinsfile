@@ -1,0 +1,79 @@
+pipeline {
+    agent {
+        docker {
+            image 'maven:3.9.9-eclipse-temurin-21-alpine'
+        }
+    }
+    stages {
+        stage('SonarQube Analysis') {
+            agent any
+            environment {
+                SCANNER_HOME = tool 'sonarqube'
+            }
+            steps {
+                withSonarQubeEnv('sonarqube') { // Name of the SonarQube server configuration
+                    sh '''
+                    ${SCANNER_HOME}/bin/sonar-scanner \
+                    -Dsonar.projectKey=demo3.2 \
+                    -Dsonar.sources=. \
+                    -Dsonar.host.url=${SONAR_HOST_URL} \
+                    -Dsonar.login=${SONAR_AUTH_TOKEN}
+                    '''
+                }
+            }
+        }
+        stage('Quality Gate') {
+            steps {
+                waitForQualityGate abortPipeline: true
+            }
+        }
+        stage('Build') {
+            steps {
+                sh 'mvn -B -f ./java-app -DskipTests clean package'
+            }
+        }
+        stage('Test') { 
+            steps {
+                sh 'mvn -f ./java-app test' 
+            }
+            post {
+                always {
+                    junit '**/target/surefire-reports/*.xml' 
+                    archiveArtifacts artifacts: '**/target/surefire-reports/*.xml', fingerprint:true
+                }
+            }
+        }
+        stage('Package') {
+            steps {
+                // Package the application
+                sh 'mvn -f ./java-app package'
+                archiveArtifacts artifacts: '**/target/*.war', fingerprint:true
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                script {
+                      // initiate docker 
+                    def dockerHome = tool 'mydocker'
+                    env.PATH = "${dockerHome}/bin:${env.PATH}"
+                    // Build the Docker image
+                    def image = docker.build('java-app-demo3.1')
+                    // Push the image to Docker Hub
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-credentials') {
+                        image.push('latest')
+                    }
+            }
+        }
+
+        post {
+            always {
+                archiveArtifacts artifacts: '**/Dockerfile', fingerprint: true
+            }
+        }
+            
+        
+    }
+}
+
+}

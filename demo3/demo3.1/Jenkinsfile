@@ -1,0 +1,56 @@
+pipeline {
+    agent {
+        docker {
+            image 'maven:3.9.9-eclipse-temurin-21-alpine'
+        }
+    }
+    stages {
+        stage('Build') {
+            steps {
+                sh 'mvn -B -f ./java-app -DskipTests clean package'
+            }
+        }
+        stage('Test') { 
+            steps {
+                sh 'mvn -f ./java-app test' 
+            }
+            post {
+                always {
+                    junit '**/target/surefire-reports/*.xml' 
+                    archiveArtifacts artifacts: '**/target/surefire-reports/*.xml', fingerprint:true
+                }
+            }
+        }
+        stage('Package') {
+            steps {
+                // Package the application
+                sh 'mvn -f ./java-app package'
+                archiveArtifacts artifacts: '**/target/*.war', fingerprint:true
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                steps {
+                script {
+                    // Build the Docker image
+                    def image = docker.build('java-app-demo3.1')
+                    // Push the image to Docker Hub
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-credentials') {
+                        image.push('latest')
+                    }
+                }
+            }
+        }
+
+        post {
+            always {
+                archiveArtifacts artifacts: '**/Dockerfile', fingerprint: true
+            }
+        }
+            
+        
+    }
+}
+
+}
